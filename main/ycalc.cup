@@ -1,0 +1,401 @@
+/* ----------------------Preliminary Declarations Section--------------------*/
+
+import sql.*;
+/* Import the class java_cup.runtime.*  */
+import java_cup.runtime.*;
+import java.util.*;
+
+
+//action code
+//    {:
+
+//    :};
+
+parser code {:
+
+    public void report_error(String message, Object info) {
+
+        /* Create a StringBuilder called 'm' with the string 'Error' in it. */
+        StringBuilder m = new StringBuilder("Error");
+
+        /* Check if the information passed to the method is the same
+           type as the type java_cup.runtime.Symbol. */
+        if (info instanceof java_cup.runtime.Symbol) {
+            /* Declare a java_cup.runtime.Symbol object 's' with the
+               information in the object info that is being typecasted
+               as a java_cup.runtime.Symbol object. */
+            java_cup.runtime.Symbol s = ((java_cup.runtime.Symbol) info);
+
+            /* Check if the line number in the input is greater or
+               equal to zero. */
+            if (s.left >= 0) {
+                /* Add to the end of the StringBuilder error message
+                   the line number of the error in the input. */
+                m.append(" in line "+(s.left+1));
+                /* Check if the column number in the input is greater
+                   or equal to zero. */
+                if (s.right >= 0)
+                    /* Add to the end of the StringBuilder error message
+                       the column number of the error in the input. */
+                    m.append(", column "+(s.right+1));
+            }
+        }
+
+        m.append(" : "+message);
+
+        System.err.println(m);
+    }
+
+
+    public void report_fatal_error(String message, Object info) {
+        report_error(message, info);
+        System.exit(1);
+    }
+:};
+
+/* ------------Declaration of Terminals and Non Terminals Section----------- */
+
+terminal           SELECT, DISTINCT, FROM, WHERE, IN, AND, NOT, EXISTS, SEMI, COMMA, PERIOD, LPAREN, RPAREN, APOST;
+
+terminal String    NAME, INTNUM, EQUALS, GREATER, LESSER, EQGREATER, EQLESSER;
+//NAME is just a string honestly. Didn't want to use "STRING" so as to avoid naming conflicts.
+
+non terminal WhereNode  predicate, pred, in_pred;
+non terminal SQLNode    sql_start, select_stmt, exists_pred;
+non terminal Boolean    opt_distinct, empty;
+
+non terminal ArrayList<Column>      select_list;
+non terminal ArrayList<String[]>    table_ref_commalist, from_clause;
+non terminal ArrayList<WhereNode>   opt_where_clause, where_clause, search_condition;
+
+non terminal String[]   column_ref, table_ref, literal, scalar_exp, comparison_pred;
+non terminal String     table, range_variable;
+
+//non terminal Object     ;
+
+
+
+
+/* ----------------------------Grammar Section-------------------- */
+//NOTE: IF IT GETS TOO BIG, JUST STUFF EACH BLOCK IN IT'S OWN FILE, AND THEN RETURN THE DESIRED TYPE.
+    sql_start       ::= select_stmt:a SEMI
+                    {:
+                      SQLNode node = new SQLNode(a);
+                      //System.out.println("ConfirmDist" + node.distinct);
+                      //System.out.println("ConfirmSelect" + node.columns.get(0).name);
+                      //System.out.println("ConfirmFrom" + node.relations.get(0));
+
+                      //System.out.println("ConfirmWhere" + node.whereNodes.get(0));
+                      RESULT = node;
+                    :};
+
+    select_stmt     ::= SELECT opt_distinct:a select_list:b from_clause:c opt_where_clause:d
+                    {:
+                        SQLNode node = new SQLNode();
+                        //System.out.println("distinct"+a);
+                        node.distinct = a;
+                        //System.out.println("select"+b);
+                        node.columns = b;
+                        //System.out.println("from"+c);
+                        node.relations = c;
+                        //System.out.println("where"+d);
+                        node.whereNodes = d;
+                        RESULT = node;
+                        //System.out.println("Select Statement Marked.");
+                    :};
+
+    opt_distinct    ::=  empty
+                    {: RESULT = Boolean.FALSE; :}
+                    |  DISTINCT
+                    {: RESULT = Boolean.TRUE; :};
+
+    select_list     ::= select_list:a COMMA column_ref:b
+                    {:
+                        ArrayList<Column> columns = new ArrayList();
+                        Column single = new Column();
+                        if(!b[0].equals("")){single.prefix = b[0];}
+                        single.name = b[1];
+                        columns.addAll(a);   //Assuming recursion doesn't bite me in the a**, this will work right.
+                        columns.add(single);
+                        RESULT = columns;
+                        //System.out.println("SL,CR Marked.");
+                    :}
+                    |
+                    column_ref:b
+                    {:
+                        ArrayList<Column> columns = new ArrayList();
+                        Column single = new Column();
+                        if(!b[0].equals("")){single.prefix = b[0];}
+                        single.name = b[1];
+                        columns.add(single);
+                        RESULT = columns;
+                        //System.out.println(b[0] + " :CR Marked.: " + b[1]);
+                     :} ;
+
+    column_ref      ::= NAME:b //[reference/prefix, name]
+                    {:
+                        //System.out.println(b + " Name Marked.");
+                        String[] column = new String[2];
+                        column[0] = "";
+                        column[1] = b;
+                        //System.out.println("Col0="+column[0]);
+                        //System.out.println("Col1="+column[1]);
+                        RESULT = column;
+
+                    :}
+                    |
+                        NAME:a PERIOD NAME:b
+                    {:
+                        String[] column = new String[2];
+                        column[0] = a;
+                        //System.out.println("Col0="+column[0]);
+                        column[1] = b;
+                        //System.out.println("Col1="+column[1]);
+                        RESULT = column;
+                    :};
+
+    from_clause     ::= FROM table_ref_commalist:a
+                    {: RESULT = a; :};
+
+    table_ref_commalist ::= table_ref_commalist:a COMMA table_ref:b
+                    {:
+                        ArrayList<String[]> relations = new ArrayList();
+                        relations.addAll(a);
+                        relations.add(b);
+                        RESULT = relations;
+                        //System.out.println("TRC,TR Marked.");
+                    :} |
+                    table_ref:b
+                    {:
+                        ArrayList<String[]> relations = new ArrayList();
+                        relations.add(b);
+                        RESULT = relations;
+                        //System.out.println("TR Marked.");
+                        //System.out.println(b[0] +":"+b[1]);
+                        //System.out.println("TR"+ relations.get(0));
+                    :};
+
+    table_ref       ::= table:a
+                    {:
+                        String[] relation = new String[2];
+                        relation[0] = a;
+                        relation[1] = "";
+                        RESULT = relation;
+                        //System.out.println("Table Marked.");
+                        //System.out.println(a);
+                    :} |
+                        table:a range_variable:b
+                    {:
+                        String[] relation = new String[2];
+                        relation[0] = a;
+                        relation[1] = b;
+                        RESULT = relation;
+                        //System.out.println("Table Range Marked.");
+                    :};
+
+    table           ::= NAME:a
+                    {: RESULT = a; :};
+
+    range_variable  ::= NAME:a
+                    {: RESULT = a; :};
+
+//Another benefit to the super array form fill out magic of the WhereNode, is we
+//know for sure that the data we need will fill out the node at that time.
+    opt_where_clause ::= empty
+                    {:
+                        ArrayList<WhereNode> emptynode = new ArrayList();
+                        RESULT = emptynode;
+                    :}
+                    | where_clause:a
+                    {: RESULT = a; :};
+
+    where_clause    ::= WHERE search_condition:a
+                    {: RESULT = a; :}; //Should be an arraylist for sure by this point.
+
+    search_condition ::= search_condition:a AND predicate:b  //This is obviously where you make ALists.
+                    {:
+                        ArrayList<WhereNode> in_nodes = new ArrayList();
+                        in_nodes.addAll(a);   //Assuming recursion doesn't bite me in the a**, this will work right.
+                        in_nodes.add(b);
+                        RESULT = in_nodes;
+                    :} |
+                         predicate:b
+                    {:
+                        ArrayList<WhereNode> in_nodes = new ArrayList();
+                        in_nodes.add(b);
+                        RESULT = in_nodes;
+                    :};
+
+    predicate       ::= pred:a
+                    {: RESULT = a; :} |
+                        NOT pred:a
+                    {:
+                        a.negated = Boolean.TRUE;
+                        RESULT = a;
+                    :};
+                    //Somewhere around here maybe start turning the wherenodes into arraylists.
+
+                    //YES. HERE. MAKE WHERENODE. FOR THE BLOOD GOD.
+    pred            ::= comparison_pred:a   //[type1, pre1, name1, val1, compare, type2, pre2, name2, val2]
+                    {:
+                        WhereNode in_node = new WhereNode();
+                        in_node.leftOperandType = a[0]; //type1
+                        in_node.leftOperandPrefix = a[1]; //pre1
+                        in_node.leftOperandName = a[2]; //name1
+                        in_node.leftOperandValue = a[3]; //value1
+                        in_node.comparison = a[4];  //compare
+                        in_node.rightOperandType = a[5]; //type2
+                        in_node.rightOperandPrefix = a[6]; //pre2
+                        in_node.rightOperandName = a[7]; //name2
+                        in_node.rightOperandValue = a[8]; //val2
+                        RESULT = in_node;
+                    :} |
+                        in_pred:a
+                    {:
+                        RESULT = a;
+                    :} |
+                        exists_pred:a
+                    {:
+                        WhereNode in_node = new WhereNode();
+                        in_node.nested = Boolean.TRUE;
+                        in_node.nestingType = "exists";
+                        in_node.subQuery = a;
+                        RESULT = in_node;
+                    :};
+
+                    //[type1, pre1, name1, val1, compare, type2, pre2, name2, val2]
+                    //I know this is obtuse, but the goal is to let it do all the assembly magic of the nodes at the top most layer and pass the data up and add to it.
+    comparison_pred ::= scalar_exp:a EQUALS scalar_exp:b
+                    {:
+                        String[] comparepred = new String[9];
+                        comparepred[0] = a[0]; //type1
+                        comparepred[1] = a[1]; //pre1
+                        comparepred[2] = a[2]; //name1
+                        comparepred[3] = a[3]; //val1
+                        comparepred[4] = "=";  //compare
+                        comparepred[5] = b[0]; //type2
+                        comparepred[6] = b[1]; //pre2
+                        comparepred[7] = b[2]; //name2
+                        comparepred[8] = b[3]; //val2
+                        RESULT= comparepred;
+                    :} |
+                    scalar_exp:a GREATER scalar_exp:b
+                    {:
+                        String[] comparepred = new String[9];
+                        comparepred[0] = a[0]; //type1
+                        comparepred[1] = a[1]; //pre1
+                        comparepred[2] = a[2]; //name1
+                        comparepred[3] = a[3]; //val1
+                        comparepred[4] = ">";  //compare
+                        comparepred[5] = b[0]; //type2
+                        comparepred[6] = b[1]; //pre2
+                        comparepred[7] = b[2]; //name2
+                        comparepred[8] = b[3]; //val2
+                        RESULT= comparepred;
+                    :} |
+                    scalar_exp:a LESSER scalar_exp:b
+                    {:
+                        String[] comparepred = new String[9];
+                        comparepred[0] = a[0]; //type1
+                        comparepred[1] = a[1]; //pre1
+                        comparepred[2] = a[2]; //name1
+                        comparepred[3] = a[3]; //val1
+                        comparepred[4] = "<";  //compare
+                        comparepred[5] = b[0]; //type2
+                        comparepred[6] = b[1]; //pre2
+                        comparepred[7] = b[2]; //name2
+                        comparepred[8] = b[3]; //val2
+                        RESULT= comparepred;
+                    :} |
+                    scalar_exp:a EQGREATER scalar_exp:b
+                    {:
+                        String[] comparepred = new String[9];
+                        comparepred[0] = a[0]; //type1
+                        comparepred[1] = a[1]; //pre1
+                        comparepred[2] = a[2]; //name1
+                        comparepred[3] = a[3]; //val1
+                        comparepred[4] = ">="; //compare
+                        comparepred[5] = b[0]; //type2
+                        comparepred[6] = b[1]; //pre2
+                        comparepred[7] = b[2]; //name2
+                        comparepred[8] = b[3]; //val2
+                        RESULT= comparepred;
+                    :} |
+                    scalar_exp:a EQLESSER scalar_exp:b
+                    {:
+                        String[] comparepred = new String[9];
+                        comparepred[0] = a[0]; //type1
+                        comparepred[1] = a[1]; //pre1
+                        comparepred[2] = a[2]; //name1
+                        comparepred[3] = a[3]; //val1
+                        comparepred[4] = "<=";  //compare
+                        comparepred[5] = b[0]; //type2
+                        comparepred[6] = b[1]; //pre2
+                        comparepred[7] = b[2]; //name2
+                        comparepred[8] = b[3]; //val2
+                        RESULT= comparepred;
+                    :};
+
+                    //[type, prefix, col_name/name, value]
+    scalar_exp      ::= literal:a //[type, value]
+                    {:
+                        String[] scalarexp = new String[4];
+                        scalarexp[0] = a[0];    //type
+                        scalarexp[1] = "";
+                        scalarexp[2] = "";
+                        scalarexp[3] = a[1];    //val
+                        RESULT = scalarexp;
+                        //for(String el:scalarexp) {System.out.print(el+",");}
+                    :} |
+                    column_ref:b //[reference/prefix, name]
+                    {:
+                        String[] scalarexp = new String[4];
+                        scalarexp[0] = "col";   //type
+                        scalarexp[1] = b[0];    //prefix
+                        scalarexp[2] = b[1];    //name
+                        scalarexp[3] = "";
+                        RESULT = scalarexp;
+                    :};
+
+    literal         ::= APOST NAME:a APOST  //[type, value]
+                    {:
+                        String[] lit = new String[2];
+                        lit[0] = "str"; //TYPE
+                        lit[1] = a;   //VALUE
+                        RESULT = lit;
+                    :} |
+                        INTNUM:a
+                    {:
+                        String[] lit = new String[2];
+                        lit[0] = "num"; //TYPE
+                        lit[1] = a;   //VALUE
+                        //System.out.println(a + "=Number");
+                        RESULT = lit;
+                    :} |
+                        INTNUM:a PERIOD INTNUM:b  //For Doubles.
+                    {:
+                        String[] lit = new String[2];
+                        lit[0] = "num"; //TYPE
+                        lit[1] = a + "." + b;   //VALUE
+                        //System.out.println(a + "=Number");
+                        RESULT = lit;
+                    :};
+
+                    //[type, prefix, col_name/name, value]
+    in_pred         ::= scalar_exp:a IN LPAREN select_stmt:b RPAREN
+                    {:
+                        WhereNode in_node = new WhereNode();
+                        in_node.nested = Boolean.TRUE;
+                        in_node.nestingType = "in";
+                        in_node.subQuery = b;
+                        in_node.leftOperandType = a[0]; //type1
+                        in_node.leftOperandPrefix = a[1]; //pre1
+                        in_node.leftOperandName = a[2]; //name1
+                        in_node.leftOperandValue = a[3]; //value1
+                        RESULT = in_node;
+                     :};
+
+    exists_pred     ::= EXISTS LPAREN select_stmt:a RPAREN
+                    {: RESULT = a; :};
+
+    empty ::= {: RESULT = Boolean.FALSE; :};
